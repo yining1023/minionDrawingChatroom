@@ -1,0 +1,214 @@
+<html>
+<head>
+	<title>WhiteBoard</title>
+	<link rel="stylesheet" type="text/css" href="css/styles.css">
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+	<script>
+
+	var h = Math.random();
+
+	function HSVtoRGB(h, s, v) {
+    var r, g, b, i, f, p, q, t;
+    if (arguments.length === 1) {
+        s = h.s, v = h.v, h = h.h;
+    }
+    i = Math.floor(h * 6);
+    f = h * 6 - i;
+    p = v * (1 - s);
+    q = v * (1 - f * s);
+    t = v * (1 - (1 - f) * s);
+    switch (i % 6) {
+        case 0: r = v, g = t, b = p; break;
+        case 1: r = q, g = v, b = p; break;
+        case 2: r = p, g = v, b = t; break;
+        case 3: r = p, g = q, b = v; break;
+        case 4: r = t, g = p, b = v; break;
+        case 5: r = v, g = p, b = q; break;
+    }
+    return {
+        r: Math.round(r * 255),
+        g: Math.round(g * 255),
+        b: Math.round(b * 255)
+   	 };
+		}
+
+		var colors = HSVtoRGB(h, 1, 1);
+
+
+	var color = "rgb(" + colors.r + "," + colors.g +"," + colors.b + ")";
+
+
+	console.log("Color: " + color);
+
+	var context;
+	var count = 0;
+
+	var users=[];
+	var currentUsers = [];
+	var chatHistory = '';
+
+	var socket = io.connect('http://localhost:8080/');
+
+	socket.on('connect', function() {
+		console.log("Connected");
+	});
+
+	socket.on('drawing',function(data) {
+		// console.log("client got the x,y data from server");
+		context.fillStyle = data.color;
+		context.fillRect(data.x, data.y, 10, 10);
+
+	});
+
+	socket.on('goodbye',function(data) {
+		console.log("Server said goodbye: " + data);
+	});
+
+	socket.on('chatmessage', function (data) {
+		document.getElementById("inner_" + data.userId).innerHTML = data.message;
+		document.getElementById('message').value="";
+	});
+
+	socket.on('clear', function (data) {
+		document.getElementById("inner_"+data).innerHTML = "";
+
+	});
+
+	socket.on('userListUpdated', function(newUserList) {
+		//detect new users
+		var newUsers = newUserList.filter(function(u) {
+			//create an array of IDs of all the current users
+			var currentIDs = currentUsers.map(function(u2) { return u2.id;});
+			//return only those users whose IDs are not present in currentIDs
+			return (currentIDs.indexOf(u.id) < 0);
+		});
+
+		// //delete disconnected users
+		// for (var i = 0; i < currentUsers.length; i++) {
+		// 	//create an array of IDs of all the users from the list
+		// 	var newIDs = newUserList.map(function(u2) { return u2.id;});
+		// 	if(newIDs.indexOf(currentUsers[i].id) < 0) {
+		// 		$(currentUsers[i].id).remove();
+		//  		currentUsers.splice(i, 1);
+		//  	}
+		//  };
+
+		socket.on('disconnect', function (data) {
+		console.log("a user disconnected " + data);	
+			document.getElementById(data).innerHTML = "";
+		});
+
+		//create element for eevery user
+		newUsers.forEach(function(u){
+			$('.avatars').append('<div id="' + u.id +'" style="position: absolute; top: ' + u.y + '%; left: ' + u.x +'%;"></div>');
+			//append image
+			var profile = Math.round(Math.random()*5);
+			$('#' + u.id).append('<img src="' + profile + '.png"></img>');
+			$('#' + u.id).append('<p>' + u.img + ':&nbsp;</p>');
+			$('#' + u.id).append('<div id="inner_' + u.id + '" class="speech-bubble">' + u.chatHistory +'</div>');
+		});
+
+		//append newUsers to currentUsers and assign that value to current Users
+		currentUsers = currentUsers.concat(newUsers);
+
+	});
+
+	var reqAnimFrame = window.mozRequestAnimationFrame    ||
+					   window.webkitRequestAnimationFrame ||
+					   window.msRequestAnimationFrame     ||
+					   window.onRequestAnimationFrame
+					   ;
+	
+	function mouseMoved(evt) {
+		//console.log(evt);
+		var rect = canvas.getBoundingClientRect();
+		context.fillRect(evt.clientX - rect.left, evt.clientY - rect.top, 10, 10);
+		context.fillStyle = color;
+		socket.emit('drawing',{x: evt.clientX - rect.left, y: evt.clientY - rect.top, color: color});
+		// console.log("client send x, y to server!!");
+	}
+
+	function draw(something) {
+		context.fillStyle = "#FFAA00";
+		context.fillRect(0, 0, count, count);
+		reqAnimFrame(draw);
+	}
+
+	window.addEventListener('load',function () {
+		var canvas = document.getElementById('mycanvas');
+		context = canvas.getContext('2d');
+
+		canvas.addEventListener('mousemove', mouseMoved);
+
+		var animal = prompt("What's your name?", "Name");
+		if(animal != null){
+			socket.emit('avataradded', {img: animal.toLowerCase(), chatHistory: chatHistory});
+		}
+
+		document.getElementById("message").addEventListener("keypress", function myFunction(event){
+			var x = event.which;
+			chatHistory += String.fromCharCode(x);
+			socket.emit('chatmessage', chatHistory);
+		});
+		document.getElementById("message").addEventListener("keydown", function myFunction(event){
+			var x = event.which;
+			if (x === 8)
+				chatHistory = chatHistory.substring(0, chatHistory.length-1);
+			else if (x === 13)
+				chatHistory += "<br/>";
+			socket.emit('chatmessage', chatHistory);
+		});
+
+		document.getElementById("trash").addEventListener("click",function(){
+			chatHistory = '';
+			socket.emit('clear')
+		});
+		
+		draw();
+	});
+</script>
+
+</head>
+<body>
+	<img src="title1.png" alt="Minions" id="title"></img>
+	<canvas width="500px" height="400px" id="mycanvas" style="background-color: rgb(225, 225, 228);"></canvas>
+	<div id="clear">
+	&nbsp;
+  Clear
+  &nbsp; &nbsp;
+  <a id="dl" download="Canvas.png" href="#">Download</a>
+  </div>
+
+  
+
+  <div class="avatars"></div>	
+  <div>
+	<input type="text" id="message" name="message" ></input>
+	<div id="trash">Trash</div></div>
+  <script>
+      var canvas = document.getElementById('mycanvas');
+      var context = canvas.getContext('2d');
+      fitToContainer(canvas);
+      function fitToContainer(canvas){
+  			canvas.style.width='100%';
+  			canvas.style.height='100%';
+ 			  canvas.width  = canvas.offsetWidth;
+ 			  canvas.height = canvas.offsetHeight;
+			}
+      function dlCanvas() {
+  			var dt = canvas.toDataURL('image/png');
+  			/* Change MIME type to trick the browser to downlaod the file instead of displaying it */
+  			dt = dt.replace(/^data:image\/[^;]*/, 'data:application/octet-stream');
+ 			  /* In addition to <a>'s "download" attribute, you can define HTTP-style headers */
+  			dt = dt.replace(/^data:application\/octet-stream/, 'data:application/octet-stream;headers=Content-Disposition%3A%20attachment%3B%20filename=Canvas.png');
+ 		 	 this.href = dt;
+			};
+			document.getElementById("dl").addEventListener('click', dlCanvas, false);
+      // bind event handler to clear button
+      document.getElementById('clear').addEventListener('click', function() {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+      }, false);
+    </script>
+</body>
+</html>
